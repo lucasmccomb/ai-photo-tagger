@@ -1,0 +1,6 @@
+photos_dir: ~/Pictures/inbox
+model: openclip://ViT-B-32
+clip_vocab: tags.txt        # one tag per line
+clip_top_k: 5
+confidence_threshold: 0.2
+output_format: xmp

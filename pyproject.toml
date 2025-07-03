@@ -1,0 +1,32 @@
+[project]
+name = "ai-photo-tagger-lem"
+version = "0.1.0"
+description = "AI-powered photo tagging service using OpenCLIP"
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "open_clip_torch>=2.20.0",
+    "Pillow>=10.0.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "PyYAML>=6.0",
+    "pathlib2>=2.3.7",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.poetry]
+packages = [{include = "ai_photo_tagger_lem", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
