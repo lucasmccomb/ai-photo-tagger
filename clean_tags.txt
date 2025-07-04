@@ -159,4 +159,155 @@ slow
 loud
 quiet
 bright
-dark 
+dark
+
+# Modern/Expanded tags
+smartphone
+tablet
+smartwatch
+drone
+robot
+virtual reality
+augmented reality
+artificial intelligence
+coding
+programming
+gaming
+streaming
+podcast
+vlog
+social media
+instagram
+twitter
+tiktok
+facebook
+youtube
+selfie stick
+headphones
+earbuds
+speaker
+microphone
+webcam
+monitor
+keyboard
+mouse
+charger
+usb
+wifi
+bluetooth
+cloud computing
+server
+data center
+blockchain
+cryptocurrency
+bitcoin
+ethereum
+nft
+3d printing
+laser
+solar panel
+electric car
+tesla
+charging station
+bike lane
+skateboard
+rollerblades
+hoverboard
+scooter (electric)
+car sharing
+ride sharing
+uber
+lyft
+public transit
+subway
+metro
+tram
+bus stop
+train station
+airport
+passport
+boarding pass
+luggage
+suitcase
+hotel
+hostel
+airbnb
+camping
+tent
+hiking
+mountaineering
+climbing
+surfing
+snowboarding
+skiing
+skating
+paragliding
+skydiving
+scuba diving
+snorkeling
+kayaking
+canoeing
+sailing
+fishing
+picnic
+barbecue
+festival
+concert
+party
+wedding
+birthday
+anniversary
+holiday
+christmas
+halloween
+easter
+valentine's day
+new year
+fireworks
+parade
+protest
+marathon
+race
+competition
+award
+medal
+trophy
+science
+laboratory
+experiment
+microscope
+telescope
+satellite
+rocket
+space
+astronaut
+planet
+moon
+star
+sun
+solar system
+galaxy
+universe
+
+# Emotions/nuance
+joy
+fear
+trust
+disgust
+anticipation
+boredom
+loneliness
+friendship
+love
+hope
+pride
+shame
+regret
+nostalgia
+curiosity
+confidence
+relief
+shock
+admiration
+sympathy
+empathy 

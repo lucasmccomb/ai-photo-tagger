@@ -1,6 +1,8 @@
 photos_dir: ~/Pictures/test-tagging
-model: openclip://ViT-B-32
-clip_vocab: clean_tags.txt # one tag per line
+model: florence2://base # using Florence-2-base
 clip_top_k: 5
-confidence_threshold: 0.6
+confidence_threshold: 0.5
 output_format: xmp
+
+# Florence-2 specific settings
+florence_prompt: "List key nouns in this image, comma separated."

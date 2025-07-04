@@ -28,23 +28,25 @@ class Config:
     
     def _validate_config(self):
         """Validate configuration values"""
-        required_fields = ['photos_dir', 'model', 'clip_vocab', 'clip_top_k', 'confidence_threshold']
-        
+        # Always required
+        required_fields = ['photos_dir', 'model', 'clip_top_k', 'confidence_threshold']
         for field in required_fields:
             if field not in self.config:
                 raise ValueError(f"Missing required configuration field: {field}")
-        
+
+        # Only require clip_vocab for OpenCLIP
+        if self.config['model'].startswith('openclip://'):
+            if 'clip_vocab' not in self.config:
+                raise ValueError("Missing required configuration field: clip_vocab (required for OpenCLIP)")
+
         # Expand user path for photos_dir
         self.config['photos_dir'] = os.path.expanduser(self.config['photos_dir'])
-        
         # Validate photos directory exists
         if not os.path.exists(self.config['photos_dir']):
             raise ValueError(f"Photos directory does not exist: {self.config['photos_dir']}")
-        
         # Validate confidence threshold
         if not 0 <= self.config['confidence_threshold'] <= 1:
             raise ValueError("confidence_threshold must be between 0 and 1")
-        
         # Validate top_k
         if self.config['clip_top_k'] <= 0:
             raise ValueError("clip_top_k must be positive")

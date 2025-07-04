@@ -1,5 +1,5 @@
 """
-AI Photo Tagger using OpenCLIP
+AI Photo Tagger using OpenCLIP and Florence-2
 """
 
 import os
@@ -7,32 +7,84 @@ import torch
 import open_clip
 from PIL import Image
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from tqdm import tqdm
 import logging
+import re
 
 from .config import Config
 from .xmp_handler import XMPHandler
 
 
 class PhotoTagger:
-    """AI-powered photo tagger using OpenCLIP"""
+    """AI-powered photo tagger using OpenCLIP and Florence-2"""
     
     def __init__(self, config: Config):
         self.config = config
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = self._get_device()
         self.model = None
         self.preprocess = None
         self.tokenizer = None
+        self.florence_model = None
+        self.florence_tokenizer = None
         self.vocab = []
         self.xmp_handler = XMPHandler()
+        self.use_florence = self.config['model'].startswith('florence2://')
         
         # Initialize logger first
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
         
-        self._load_model()
-        self._load_vocab()
+        if self.use_florence:
+            self._load_florence_model()
+        else:
+            self._load_model()
+            self._load_vocab()
+    
+    def _get_device(self) -> torch.device:
+        """Get the best available device (cuda -> mps -> cpu)"""
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return torch.device("mps")
+        else:
+            return torch.device("cpu")
+    
+    def _load_florence_model(self):
+        """Load Florence-2 model using transformers"""
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            
+            model_id = self.config['model'].replace('florence2://', 'microsoft/Florence-2-')
+            self.logger.info(f"Loading Florence-2 model: {model_id}")
+            
+            # Load tokenizer and model
+            self.florence_tokenizer = AutoTokenizer.from_pretrained(
+                model_id, 
+                trust_remote_code=True
+            )
+            
+            self.florence_model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype="auto",
+                trust_remote_code=True,
+                device_map="auto" if self.device.type == "cuda" else None
+            )
+            
+            if self.device.type != "cuda":
+                self.florence_model = self.florence_model.to(self.device)
+            
+            # Warn if on CPU with many images
+            if self.device.type == 'cpu':
+                self.logger.warning("Running Florence-2 on CPU - this will be slow for large batches")
+            
+            self.logger.info(f"Florence-2 model loaded successfully on {self.device}")
+            
+        except ImportError:
+            raise ImportError("transformers not installed. Run: poetry add transformers")
+        except Exception as e:
+            self.logger.error(f"Failed to load Florence-2 model: {e}")
+            raise
     
     def _load_model(self):
         """Load OpenCLIP model"""
@@ -113,8 +165,93 @@ class PhotoTagger:
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
         return text_features
     
+
+    
+    def tag_image_florence2(self, image_path: Path) -> List[Tuple[str, float]]:
+        """Tag a single image using Florence-2"""
+        if self.florence_model is None or self.florence_tokenizer is None:
+            raise RuntimeError("Florence-2 model not initialized")
+        
+        try:
+            # Load and preprocess image
+            image = Image.open(image_path).convert('RGB')
+            
+            # Get prompt from config or use default
+            prompt = self.config.get('florence_prompt', 'List key nouns in this image, comma separated.')
+            
+            # Prepare input for Florence-2
+            inputs = self.florence_tokenizer(
+                prompt, 
+                return_tensors="pt",
+                padding=True,
+                truncation=True
+            ).to(self.device)
+            
+            # Generate tags using Florence-2
+            with torch.no_grad():
+                outputs = self.florence_model.generate(
+                    **inputs,
+                    max_new_tokens=40,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.florence_tokenizer.eos_token_id
+                )
+            
+            # Decode the generated text
+            generated_text = self.florence_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Parse the generated text to extract tags
+            tags = self._parse_florence_output(generated_text)
+            
+            # Limit to top_k and add confidence scores
+            top_k = self.config['clip_top_k']
+            confidence_threshold = self.config['confidence_threshold']
+            
+            # Assign confidence scores (Florence-2 doesn't provide them, so we use a default)
+            default_confidence = 0.8
+            
+            result_tags = []
+            for i, tag in enumerate(tags[:top_k]):
+                confidence = default_confidence - (i * 0.05)  # Slight confidence decay
+                if confidence >= confidence_threshold:
+                    result_tags.append((tag, confidence))
+            
+            return result_tags
+            
+        except Exception as e:
+            self.logger.error(f"Error tagging image with Florence-2: {e}")
+            return []
+    
+    def _parse_florence_output(self, generated_text: str) -> List[str]:
+        """Parse Florence-2 output to extract clean tags"""
+        # Remove the prompt from the beginning if present
+        prompt = self.config.get('florence_prompt', 'List key nouns in this image, comma separated.')
+        if prompt in generated_text:
+            generated_text = generated_text.replace(prompt, '').strip()
+        
+        # Split by comma and clean up
+        tags = []
+        for tag in generated_text.split(','):
+            tag = tag.strip().lower()
+            # Remove common words and clean up
+            tag = re.sub(r'[^\w\s-]', '', tag)  # Remove punctuation except hyphens
+            tag = tag.strip()
+            
+            # Filter out empty tags and common stop words
+            if tag and len(tag) > 1 and tag not in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']:
+                tags.append(tag)
+        
+        return tags
+    
     def tag_image(self, image_path: Path) -> List[Tuple[str, float]]:
-        """Tag a single image"""
+        """Tag a single image (routes to appropriate model)"""
+        if self.use_florence:
+            return self.tag_image_florence2(image_path)
+        else:
+            return self._tag_image_openclip(image_path)
+    
+    def _tag_image_openclip(self, image_path: Path) -> List[Tuple[str, float]]:
+        """Tag a single image using OpenCLIP (original implementation)"""
         # Preprocess image
         image_tensor = self._preprocess_image(image_path)
         if image_tensor is None:
@@ -138,6 +275,16 @@ class PhotoTagger:
         confidence_threshold = self.config['confidence_threshold']
         
         values, indices = similarity[0].topk(top_k)
+        
+        # Debug: Print top predictions regardless of threshold
+        self.logger.info(f"Top {top_k} predictions (before threshold):")
+        for i, (value, idx) in enumerate(zip(values, indices)):
+            confidence = value.item()
+            confidence_normalized = (confidence + 1) / 2
+            idx_int = int(idx.item())
+            if 0 <= idx_int < len(self.vocab):
+                tag = self.vocab[idx_int]
+                self.logger.info(f"  {i+1}. {tag}: {confidence_normalized:.3f} (raw: {confidence:.3f})")
         
         tags = []
         for value, idx in zip(values, indices):

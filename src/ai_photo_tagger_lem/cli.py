@@ -14,11 +14,14 @@ from .config import Config
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="AI-powered photo tagging using OpenCLIP",
+        description="AI-powered photo tagging using OpenCLIP and Florence-2",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process photos using default config
+  # Process photos using default config (OpenCLIP)
+  python -m ai_photo_tagger_lem.cli
+  
+  # Process photos with Florence-2 (update config.yaml: model: florence2://base)
   python -m ai_photo_tagger_lem.cli
   
   # Process photos with custom config

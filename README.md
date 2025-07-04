@@ -1,12 +1,14 @@
 # AI Photo Tagger
 
-An AI-powered photo tagging service that uses OpenCLIP to automatically tag your photos with relevant labels. This tool can process entire directories of images and generate tags based on a customizable vocabulary.
+An AI-powered photo tagging service that uses OpenCLIP and Florence-2 to automatically tag your photos with relevant labels. This tool can process entire directories of images and generate tags using either a predefined vocabulary (OpenCLIP) or zero-shot generation (Florence-2).
 
 ## Features
 
-- **AI-Powered Tagging**: Uses OpenCLIP (ViT-B-32) model for accurate image recognition
+- **AI-Powered Tagging**: Uses OpenCLIP (ViT-B-32) or Florence-2 for accurate image recognition
+- **Multiple Models**: Choose between OpenCLIP (vocabulary-based) or Florence-2 (zero-shot generation)
 - **Batch Processing**: Process entire directories of photos recursively
-- **Customizable Vocabulary**: Define your own set of tags in a simple text file
+- **Customizable Vocabulary**: Define your own set of tags in a simple text file (OpenCLIP)
+- **Zero-Shot Generation**: Generate tags without predefined vocabulary (Florence-2)
 - **Confidence Thresholding**: Only include tags above a specified confidence level
 - **XMP Metadata Integration**: Creates or updates XMP sidecar files with AI tags
 - **EXIF Data Preservation**: Extracts and preserves existing EXIF data
@@ -41,25 +43,32 @@ Create a `config.yaml` file in your project directory:
 
 ```yaml
 photos_dir: ~/Pictures/inbox
-model: openclip://ViT-B-32
-clip_vocab: tags.txt
+model: openclip://ViT-B-32 # or florence2://base for Florence-2
+clip_vocab: tags.txt # only used for OpenCLIP
 clip_top_k: 5
-confidence_threshold: 0.2
+confidence_threshold: 0.6
 output_format: xmp
+
+# Florence-2 specific settings
+florence_prompt: "List key nouns in this image, comma separated."
 ```
 
 ### Configuration Options
 
 - `photos_dir`: Directory containing photos to process (supports `~` for home directory)
-- `model`: OpenCLIP model to use (currently supports `openclip://ViT-B-32`)
-- `clip_vocab`: Path to vocabulary file with one tag per line
+- `model`: Model to use:
+  - `openclip://ViT-B-32` for OpenCLIP (vocabulary-based tagging)
+  - `florence2://base` for Florence-2-base (zero-shot generation)
+  - `florence2://large` for Florence-2-large (zero-shot generation)
+- `clip_vocab`: Path to vocabulary file with one tag per line (only used for OpenCLIP)
 - `clip_top_k`: Number of top tags to consider per image
 - `confidence_threshold`: Minimum confidence score (0.0 to 1.0) for tags to be included
 - `output_format`: Output format (`json` or `xmp`)
+- `florence_prompt`: Custom prompt for Florence-2 tag generation
 
-## Vocabulary File
+## Vocabulary File (OpenCLIP Only)
 
-Create a `tags.txt` file with one tag per line. The system will use these tags to label your photos:
+For OpenCLIP model, create a `tags.txt` file with one tag per line. The system will use these tags to label your photos:
 
 ```
 person
@@ -72,13 +81,22 @@ food
 # ... add more tags as needed
 ```
 
+**Note**: Florence-2 generates tags automatically without requiring a vocabulary file.
+
 ## Usage
 
 ### Command Line Interface
 
-**Process all photos in configured directory**:
+**Process all photos in configured directory (OpenCLIP)**:
 
 ```bash
+python -m ai_photo_tagger_lem.cli
+```
+
+**Process with Florence-2** (update `config.yaml` first):
+
+```bash
+# Edit config.yaml: model: florence2://base
 python -m ai_photo_tagger_lem.cli
 ```
 
@@ -123,6 +141,35 @@ results = tagger.process_directory()
 # Save results
 tagger.save_results(results, 'json')
 ```
+
+## Model Comparison
+
+### OpenCLIP vs Florence-2
+
+| Feature                 | OpenCLIP                        | Florence-2                        |
+| ----------------------- | ------------------------------- | --------------------------------- |
+| **Tagging Method**      | Vocabulary-based classification | Zero-shot generation              |
+| **Vocabulary Required** | Yes (custom tags.txt file)      | No (generates tags automatically) |
+| **Speed**               | Fast (pre-computed embeddings)  | Slower (generation per image)     |
+| **Accuracy**            | Good for predefined concepts    | Excellent for diverse content     |
+| **Memory Usage**        | Lower                           | Higher                            |
+| **GPU Requirements**    | Moderate                        | High (recommended)                |
+
+### When to Use Each Model
+
+**Use OpenCLIP when:**
+
+- You have a specific set of tags you want to detect
+- You need fast processing of many images
+- You're working with limited computational resources
+- You want consistent, controlled vocabulary
+
+**Use Florence-2 when:**
+
+- You want to discover new tags automatically
+- You have diverse, unpredictable image content
+- You have powerful GPU resources available
+- You want more natural, descriptive tags
 
 ## Workflow
 
