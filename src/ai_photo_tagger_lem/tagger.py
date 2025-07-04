@@ -12,6 +12,7 @@ from tqdm import tqdm
 import logging
 
 from .config import Config
+from .xmp_handler import XMPHandler
 
 
 class PhotoTagger:
@@ -24,12 +25,14 @@ class PhotoTagger:
         self.preprocess = None
         self.tokenizer = None
         self.vocab = []
+        self.xmp_handler = XMPHandler()
+        
+        # Initialize logger first
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
         
         self._load_model()
         self._load_vocab()
-        
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
     
     def _load_model(self):
         """Load OpenCLIP model"""
@@ -54,18 +57,27 @@ class PhotoTagger:
             raise FileNotFoundError(f"Vocabulary file not found: {vocab_path}")
         
         with open(vocab_path, 'r') as f:
-            self.vocab = [line.strip() for line in f if line.strip()]
+            # Filter out comments and empty lines, clean up tags
+            self.vocab = []
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    # Clean up the tag (remove extra spaces, ensure it's a valid tag)
+                    tag = line.strip()
+                    if tag and len(tag) <= 64:  # Respect 64 char limit
+                        self.vocab.append(tag)
         
         self.logger.info(f"Loaded {len(self.vocab)} tags from vocabulary")
     
     def _get_image_files(self, directory: str) -> List[Path]:
-        """Get all image files from directory"""
+        """Get all image files from directory and subdirectories recursively"""
         image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
         image_files = []
         
         for ext in image_extensions:
-            image_files.extend(Path(directory).glob(f"*{ext}"))
-            image_files.extend(Path(directory).glob(f"*{ext.upper()}"))
+            # Search recursively with ** for all subdirectories
+            image_files.extend(Path(directory).rglob(f"*{ext}"))
+            image_files.extend(Path(directory).rglob(f"*{ext.upper()}"))
         
         return sorted(image_files)
     
@@ -76,7 +88,12 @@ class PhotoTagger:
             if self.preprocess is not None:
                 # self.preprocess is a tuple of transforms, we need the first one
                 transform = self.preprocess[0] if isinstance(self.preprocess, tuple) else self.preprocess
-                return torch.tensor(transform(image)).unsqueeze(0).to(self.device)
+                # Convert PIL image to tensor properly
+                tensor = transform(image)
+                if isinstance(tensor, torch.Tensor):
+                    return tensor.unsqueeze(0).to(self.device)
+                else:
+                    return torch.tensor(tensor, dtype=torch.float32).unsqueeze(0).to(self.device)
             return None
         except Exception as e:
             self.logger.error(f"Error preprocessing {image_path}: {e}")
@@ -86,7 +103,11 @@ class PhotoTagger:
         """Get text embeddings for vocabulary"""
         if self.tokenizer is None or self.model is None:
             raise RuntimeError("Model or tokenizer not initialized")
-        text_tokens = self.tokenizer(self.vocab).to(self.device)
+        
+        # Use better prompting for more accurate classification
+        prompted_vocab = [f"a photograph showing {tag}" for tag in self.vocab]
+        text_tokens = self.tokenizer(prompted_vocab).to(self.device)
+        
         with torch.no_grad():
             text_features = self.model.encode_text(text_tokens)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
@@ -109,8 +130,8 @@ class PhotoTagger:
             image_features = self.model.encode_image(image_tensor)
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         
-        # Calculate similarities
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+        # Calculate similarities (cosine similarity, range -1 to 1)
+        similarity = image_features @ text_features.T
         
         # Get top predictions
         top_k = self.config['clip_top_k']
@@ -121,35 +142,74 @@ class PhotoTagger:
         tags = []
         for value, idx in zip(values, indices):
             confidence = value.item()
-            if confidence >= confidence_threshold:
+            # Convert from cosine similarity (-1 to 1) to confidence (0 to 1)
+            confidence_normalized = (confidence + 1) / 2
+            if confidence_normalized >= confidence_threshold:
                 idx_int = int(idx.item())
                 if 0 <= idx_int < len(self.vocab):
                     tag = self.vocab[idx_int]
-                    tags.append((tag, confidence))
+                    tags.append((tag, confidence_normalized))
         
         return tags
     
     def process_directory(self) -> Dict[str, List[Tuple[str, float]]]:
-        """Process all images in the configured directory"""
-        photos_dir = self.config['photos_dir']
-        image_files = self._get_image_files(photos_dir)
+        """Process all images in the configured directory with XMP and WebP export"""
+        photos_dir = Path(self.config['photos_dir'])
+        image_files = self._get_image_files(str(photos_dir))
         
         if not image_files:
             self.logger.warning(f"No image files found in {photos_dir}")
             return {}
+        
+        # Create tagged-jpeg-exports directory
+        jpeg_exports_dir = photos_dir / "tagged-jpeg-exports"
+        jpeg_exports_dir.mkdir(exist_ok=True)
+        self.logger.info(f"Created tagged-jpeg-exports directory: {jpeg_exports_dir}")
         
         self.logger.info(f"Found {len(image_files)} images to process")
         
         results = {}
         for image_path in tqdm(image_files, desc="Processing images"):
             try:
+                self.logger.info(f"Processing: {image_path.name}")
+                
+                # Generate AI tags
                 tags = self.tag_image(image_path)
                 if tags:
                     results[str(image_path)] = tags
-                    self.logger.info(f"{image_path.name}: {[tag[0] for tag in tags]}")
+                    self.logger.info(f"AI tags: {[tag[0] for tag in tags]}")
+                
+                # Extract EXIF data
+                exif_data = self.xmp_handler.get_exif_data(image_path)
+                if exif_data:
+                    self.logger.info(f"EXIF data: {len(exif_data)} tags extracted")
+                
+                # Check for existing XMP file
+                xmp_path = image_path.with_suffix('.xmp')
+                if xmp_path.exists():
+                    self.logger.info(f"Found existing XMP file: {xmp_path.name}")
+                    self.xmp_handler.update_xmp_file(xmp_path, tags, exif_data)
+                else:
+                    self.logger.info(f"Creating new XMP file for: {image_path.name}")
+                    xmp_path = self.xmp_handler.create_xmp_file(image_path, tags, exif_data)
+                
+                # Log XMP data
+                self.xmp_handler.log_xmp_data(xmp_path)
+                
+                # Export JPEG with embedded XMP data
+                jpeg_path = self.xmp_handler.export_jpeg_with_xmp(
+                    image_path, xmp_path, jpeg_exports_dir, max_size_mb=1.0
+                )
+                
+                if jpeg_path:
+                    self.logger.info(f"Exported JPEG: {jpeg_path.name}")
+                else:
+                    self.logger.error(f"Failed to export JPEG for: {image_path.name}")
+                
             except Exception as e:
                 self.logger.error(f"Error processing {image_path}: {e}")
         
+        self.logger.info(f"Processing complete. JPEG exports saved to: {jpeg_exports_dir}")
         return results
     
     def save_results(self, results: Dict[str, List[Tuple[str, float]]], output_format: str | None = None):

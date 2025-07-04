@@ -5,10 +5,13 @@ An AI-powered photo tagging service that uses OpenCLIP to automatically tag your
 ## Features
 
 - **AI-Powered Tagging**: Uses OpenCLIP (ViT-B-32) model for accurate image recognition
-- **Batch Processing**: Process entire directories of photos at once
+- **Batch Processing**: Process entire directories of photos recursively
 - **Customizable Vocabulary**: Define your own set of tags in a simple text file
 - **Confidence Thresholding**: Only include tags above a specified confidence level
-- **Multiple Output Formats**: Save results as JSON or XMP metadata
+- **XMP Metadata Integration**: Creates or updates XMP sidecar files with AI tags
+- **EXIF Data Preservation**: Extracts and preserves existing EXIF data
+- **JPEG Export**: Creates optimized JPEG versions with embedded metadata (max 1MB)
+- **Non-Destructive**: Original images remain untouched
 - **GPU Acceleration**: Automatically uses CUDA if available, falls back to CPU
 
 ## Installation
@@ -121,29 +124,81 @@ results = tagger.process_directory()
 tagger.save_results(results, 'json')
 ```
 
-## Output Formats
+## Workflow
 
-### JSON Output
+The AI Photo Tagger now follows this workflow:
 
-Results are saved as `photo_tags.json`:
+1. **Scan Directory**: Recursively finds all image files in the configured directory
+2. **Generate AI Tags**: Uses OpenCLIP to analyze each image and generate relevant tags
+3. **Extract EXIF Data**: Preserves existing EXIF metadata from original images
+4. **Create/Update XMP Files**:
+   - Creates new `.xmp` sidecar files if none exist
+   - Updates existing `.xmp` files with new AI tags
+   - Preserves existing XMP data and adds EXIF information
+5. **Export JPEG**: Creates optimized JPEG versions with embedded metadata
+6. **Log Results**: Shows detailed information about each processed image
 
-```json
-{
-  "/path/to/photo1.jpg": [
-    ["person", 0.85],
-    ["smiling", 0.72],
-    ["portrait", 0.68]
-  ],
-  "/path/to/photo2.jpg": [
-    ["mountain", 0.91],
-    ["landscape", 0.78]
-  ]
-}
+### Output Structure
+
+```
+photos_dir/
+├── original_image1.jpg
+├── original_image1.xmp          # Created/updated with AI tags
+├── subfolder/
+│   ├── original_image2.png
+│   └── original_image2.xmp      # Created/updated with AI tags
+└── tagged-jpeg-exports/
+    ├── original_image1.jpg      # Optimized JPEG with embedded metadata
+    └── original_image2.jpg      # Optimized JPEG with embedded metadata
 ```
 
-### XMP Output
+### XMP File Format
 
-XMP metadata is embedded directly into image files (requires additional libraries).
+XMP files follow industry best practices with keywords stored in `dc:subject`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="AI Photo Tagger">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"
+                     xmlns:exif="http://ns.adobe.com/exif/1.0/"
+                     xmlns:lr="http://ns.adobe.com/lightroom/1.0/"
+                     xmlns:AI="http://ai-photo-tagger.com/1.0/">
+      <!-- Standard keywords - readable by all DAM software -->
+      <dc:subject>
+        <rdf:Bag>
+          <rdf:li>Person</rdf:li>
+          <rdf:li>Smiling</rdf:li>
+          <rdf:li>Portrait</rdf:li>
+        </rdf:Bag>
+      </dc:subject>
+
+      <!-- AI confidence scores (custom namespace) -->
+      <AI:ConfidenceScores>
+        <rdf:Bag>
+          <rdf:li>Person:0.850</rdf:li>
+          <rdf:li>Smiling:0.720</rdf:li>
+          <rdf:li>Portrait:0.680</rdf:li>
+        </rdf:Bag>
+      </AI:ConfidenceScores>
+
+      <!-- EXIF data -->
+      <exif:DateTimeOriginal>2023:01:15 14:30:25</exif:DateTimeOriginal>
+      <exif:Make>Canon</exif:Make>
+      <exif:Model>EOS R5</exif:Model>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+```
+
+### Keyword Best Practices
+
+- **Standard Location**: Keywords stored in `dc:subject` (Dublin Core)
+- **Format**: Singular nouns with proper casing (`Person`, not `people`)
+- **No Duplicates**: System automatically avoids duplicate keywords
+- **Confidence Scores**: Stored separately in custom namespace
+- **EXIF Preservation**: All original EXIF data preserved
+- **Hierarchical Support**: Can add `lr:hierarchicalSubject` for nested keywords
 
 ## Supported Image Formats
 
@@ -166,6 +221,9 @@ XMP metadata is embedded directly into image files (requires additional librarie
 - OpenCLIP
 - PIL (Pillow)
 - PyYAML
+- exiftool (system dependency)
+- exifread
+- lxml
 
 ## Troubleshooting
 
@@ -175,6 +233,10 @@ XMP metadata is embedded directly into image files (requires additional librarie
 2. **Model download fails**: Check your internet connection and try again
 3. **Memory errors**: Reduce batch size or use a smaller model
 4. **No images found**: Check the `photos_dir` path in your config
+5. **exiftool not found**: Install exiftool on your system:
+   - **macOS**: `brew install exiftool`
+   - **Ubuntu/Debian**: `sudo apt-get install exiftool`
+   - **Windows**: Download from https://exiftool.org/
 
 ### Debug Mode
 
